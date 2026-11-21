@@ -238,7 +238,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "#!/usr/bin/env bash\n\nset -e\nset -u\n\nPATH=\"$PATH:/opt/homebrew/bin\"\nLAUNCH_AGENTS_DIR=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents\"\nLAUNCH_AGENT_PLIST=\"$LAUNCH_AGENTS_DIR/$AAR_LAUNCH_AGENT_LABEL.plist\"\n\nif [ ! -f \"$LAUNCH_AGENT_PLIST\" ]; then\n  >&2 echo \"Launch Agent Plist file not found at $LAUNCH_AGENT_PLIST\"; exit 1\nfi\n\nenvsubst < \"$LAUNCH_AGENT_PLIST\" | sponge \"$LAUNCH_AGENT_PLIST\"\n";
+			shellScript = "#!/usr/bin/env bash\n\nset -e\nset -u\n\nPATH=\"$PATH:/opt/homebrew/bin\"\nLAUNCH_AGENTS_DIR=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents\"\nLAUNCH_AGENT_PLIST=\"$LAUNCH_AGENTS_DIR/$AAR_LAUNCH_AGENT_LABEL.plist\"\n\nif [ ! -f \"$LAUNCH_AGENT_PLIST\" ]; then\n  >&2 echo \"Launch Agent Plist file not found at $LAUNCH_AGENT_PLIST\"; exit 1\nfi\n\nenvsubst < \"$LAUNCH_AGENT_PLIST\" > \"$LAUNCH_AGENT_PLIST.tmp\"\nmv \"$LAUNCH_AGENT_PLIST.tmp\" \"$LAUNCH_AGENT_PLIST\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -379,7 +379,7 @@
 				CURRENT_PROJECT_VERSION = "$(AAR_BUILD_NUMBER)";
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 82FJB5QMSS;
+				DEVELOPMENT_TEAM = 4QLLA9Y6LR;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -478,7 +478,7 @@
 				CURRENT_PROJECT_VERSION = "$(AAR_BUILD_NUMBER)";
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 82FJB5QMSS;
+				DEVELOPMENT_TEAM = 4QLLA9Y6LR;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
