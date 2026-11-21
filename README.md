@@ -28,8 +28,13 @@
 
 A lightweight, single-purpose macOS app that automatically allows other devices to AirPlay to your computer, eliminating the need for manual intervention—otherwise required when the device is signed into a different iCloud account. It detects incoming notification alerts for devices attempting to AirPlay to your Mac and programmatically accepts them.
 
+This fork of [duddu/auto-accept-airplay-requests](https://github.com/duddu/auto-accept-airplay-requests) accepts a request as soon as its notification appears, works with every macOS language, and can limit acceptance to an allowlist of devices.
+
 ## Feature Highlights
 
+- Accepts requests the moment the notification appears: an **Accessibility observer** on Notification Center triggers the check, with a fallback scan every 2 seconds
+- Works in **every macOS language**: the notification text and the "Accept" button title are read from the localization tables of macOS itself
+- Optional **allowlist** of devices allowed to AirPlay without confirmation
 - Minimal **resource consumption**, meant to run forever with no impact
 - Written in **Swift 6**, built as executable with no dependencies 
 - Operates as a low-priority, self-recovering **background process**
@@ -38,13 +43,20 @@ A lightweight, single-purpose macOS app that automatically allows other devices 
 
 ## Get Started
 
-- Download the app from the [latest release](https://github.com/duddu/auto-accept-airplay-requests/releases/latest) assets.
+- Build the app from source with Xcode:
+  ```sh
+  xcodebuild -project "Accept AirPlay Requests.xcodeproj" \
+    -scheme "Accept AirPlay Requests" \
+    -configuration Release \
+    -derivedDataPath "$PWD/DerivedData/Accept AirPlay Requests" \
+    build
+  ```
+  The application bundle is written to `DerivedData/Accept AirPlay Requests/Build/Products/Release/Accept AirPlay Requests.app`.
 - Move the application bundle ("Accept AirPlay Requests.app") to your preferred folder (e.g. /Applications or /Users/YourUser/Applications).
 - Double click to open the app; an alert will instruct you how to grant the required permission.
 
-> [!IMPORTANT]
-> The first time you open the application, macOS will warn you that it comes from an **unidentified developer** (i.e. not enrolled in the -bit pricey- Apple Developer program). To proceed, you will need to open *System Settings > Privacy & Security*, scroll to the bottom and click the **[Open Anyway](https://support.apple.com/en-us/102445#openanyway)** button.  
-> By the way, you can always check the authenticity of the application bundle by verifying its **code signature**—instructions are included in each release note.
+> [!NOTE]
+> The project signs the app with an Apple Development certificate of team `4QLLA9Y6LR`. To sign with your own team, append `DEVELOPMENT_TEAM=<your team id>` to the build command. An ad-hoc signature (`CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=`) works too, but macOS then resets the Accessibility permission after every rebuild.
 
 After the initial setup, the application will now run in the background (i.e. no visible icon on your Dock), and will only bother you in case your action is needed (e.g. a needed permission was revoked).
 
@@ -74,6 +86,24 @@ This happens even if you both are **on the same network**, even if you **previou
 
 The only required permission is in *System Settings > Privacy & Security > **Accessibility***. It's needed to simulate clickling the "Accept" button on the incoming AirPlay notifications. The app ensures automatically this permission has been granted and alerts you with instructions if not.
 
+### Allowed devices
+
+By default every incoming AirPlay request is accepted. To accept requests only from specific devices, list their names in the `AllowedDevices` preference:
+
+```sh
+defaults write dev.duddu.AcceptAirPlayRequests AllowedDevices -array "Masha's iPhone" "Living Room iPad"
+```
+
+The running app applies changes immediately. Names are compared ignoring letter case and repeated spaces. Requests from other devices stay on screen for you to accept or decline manually, and the app logs the name of every ignored device (see [Logging](#logging)): the log shows the exact name a device uses. An empty list (`-array` with no names) leaves every request to manual confirmation.
+
+To accept every device again:
+
+```sh
+defaults delete dev.duddu.AcceptAirPlayRequests AllowedDevices
+```
+
+A device name is chosen by its owner and can be changed at any time, so anyone who knows an allowed name can reuse it.
+
 ### Stop the background process
 
 <picture>
@@ -90,8 +120,8 @@ Of course, another obvious option is to look for the app name in Activity Monito
 
 ### Update the app version
 
-To update the app to a different [release version](https://github.com/duddu/auto-accept-airplay-requests/releases), you must first [stop](#stop-the-background-process) the running background process. Then, simply replace the existing application bundle ("Accept AirPlay Requests.app") and re-enable the background process.  
-After that re-open the app file just to [check it's running](#check-the-app-is-running) - if a macOS alert pops up telling you the app cannot be opened as coming from an unidentified developer, please refer to the "Important" info box in the [Get Started](#get-started) section.
+To update the app, you must first [stop](#stop-the-background-process) the running background process. Then, simply replace the existing application bundle ("Accept AirPlay Requests.app") with a newly built one and re-enable the background process.  
+After that re-open the app file just to [check it's running](#check-the-app-is-running).
 
 ### Uninstall the app
 
