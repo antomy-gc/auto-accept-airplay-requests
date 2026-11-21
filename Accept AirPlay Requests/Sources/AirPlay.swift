@@ -1,164 +1,106 @@
-import AppKit.NSRunningApplication
 import ApplicationServices.HIServices
 
-public struct AARNotificationsScanner: Sendable, AARLoggable {
-  public func scanForAirPlayAlerts() {
-    if let notificationCenterWindow = getNotificationCenterWindow() {
-      logger.debug("scanning for airplay requests alerts")
-      findAndActionAirPlayAlert(in: notificationCenterWindow)
+@MainActor
+final class AARAirPlayRequestsHandler: AARLoggable {
+  private static let maxSearchDepth = 12
+  private static let messagingTimeoutSeconds: Float = 1
+
+  private let strings: AARAirPlayNotificationStrings
+  private var handledRequests: Set<String> = []
+
+  init(strings: AARAirPlayNotificationStrings = .system) {
+    self.strings = strings
+  }
+
+  func scan(application: AXUIElement) {
+    AXUIElementSetMessagingTimeout(application, Self.messagingTimeoutSeconds)
+
+    let windows = elements(of: application, attribute: kAXWindowsAttribute)
+    guard !windows.isEmpty else {
+      handledRequests.removeAll()
+      return
+    }
+    for window in windows {
+      search(window, depth: 0)
     }
   }
 
-  private func findAndActionAirPlayAlert(in element: AXUIElement) {
-    for child in getUIElementChildren(of: element) {
-      var actionNamesArray: CFArray?
-      AXUIElementCopyActionNames(child, &actionNamesArray)
-
-      guard let actionNames = actionNamesArray as? [CFString] else { continue }
-
-      for name in actionNames {
-        guard validateNotificationAction(of: child, name: name) else { continue }
-        logger.debug("action validation passed")
-
-        guard validateNotificationAttributes(of: child) else { continue }
-        logger.debug("attributes validation passed")
-
-        let performResult = AXUIElementPerformAction(child, name)
-        guard performResult == .success else {
-          logger.error(
-            "perform action failed with axerror code=\(performResult.rawValue, privacy: .public)"
-          )
-          continue
-        }
-        logger.info("action performed successfully")
-        return
-      }
-
-      // @TODO avoid recurse here for known scenarios
-      return findAndActionAirPlayAlert(in: child)
+  private func search(_ element: AXUIElement, depth: Int) {
+    if let acceptAction = acceptAction(of: element) {
+      handle(element, acceptAction: acceptAction)
+      return
+    }
+    guard depth < Self.maxSearchDepth else { return }
+    for child in elements(of: element, attribute: kAXChildrenAttribute) {
+      search(child, depth: depth + 1)
     }
   }
 
-  private func validateNotificationAction(of element: AXUIElement, name: CFString) -> Bool {
+  private func acceptAction(of element: AXUIElement) -> CFString? {
+    var namesRef: CFArray?
     guard
-      String(describing: name).lowercased().starts(with: "name:accept")
-    else { return false }
-
-    logger.debug("action name matched: \(String(describing: name), privacy: .public)")
-
-    var description: CFString?
-    AXUIElementCopyActionDescription(element, name, &description)
-    guard 
-      let description = description as? String,
-      description.lowercased() == "accept"
-    else {
-      logger.debug(
-        "action description not matched: \(String(describing: description), privacy: .public)"
-      )
-      return false
-    }
-
-    logger.debug(
-      "action description matched: \(String(describing: description), privacy: .public)"
-    )
-    return true
-  }
-
-  private func validateNotificationAttributes(of element: AXUIElement) -> Bool {
-    var description: CFTypeRef?
-    AXUIElementCopyAttributeValue(element, kAXDescription as CFString, &description)
-
-    guard let description = description as? String else { return false }
-    logger.debug("attribute description: \(description, privacy: .public)")
-
-    // @TODO extract other regexs and constants in string catalog
-    if (try? (/^airplay.+would like to airplay to this mac\.$/.ignoresCase()).wholeMatch(
-      in: description
-    )) != nil {
-      return true
-    }
-
-    guard
-      description.lowercased() == "airplay",
-      getUIElementChildren(of: element).contains(where: { child in
-        var identifierRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(child, kAXIdentifierAttribute as CFString, &identifierRef)
-        guard
-          let identifier = identifierRef as? String,
-          identifier.lowercased() == "body"
-        else {
-          logger.debug(
-            "attribute identifier not matched: \(String(describing: identifierRef), privacy: .public)"
-          )
-          return false
-        }
-
-        var valueRef: CFTypeRef?
-        AXUIElementCopyAttributeValue(child, kAXValueAttribute as CFString, &valueRef)
-        guard
-          let value = valueRef as? String,
-          let _ = try? (/^.+would like to airplay to this mac\.$/.ignoresCase()).wholeMatch(
-            in: value
-          )
-        else {
-          logger.debug(
-            "attribute value not matched: \(String(describing: valueRef), privacy: .public)"
-          )
-          return false
-        }
-
-        return true
-      })
-    else {
-      return false
-    }
-
-    return true
-  }
-
-  private func getUIElementChildren(of element: AXUIElement) -> [AXUIElement] {
-    var children: CFTypeRef?
-    AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
-
-    return children as? [AXUIElement] ?? []
-  }
-
-  // @TODO try AXObserverAddNotification on getNotificationCenterApplication()
-  private func getNotificationCenterWindow() -> AXUIElement? {
-    guard
-      let notificationCenterUIElement = getNotificationCenterApplication()
+      AXUIElementCopyActionNames(element, &namesRef) == .success,
+      let names = namesRef as? [String]
     else { return nil }
 
-    // @TODO use kAXMainWindowAttribute
-    var windowsRef: CFTypeRef?
-    AXUIElementCopyAttributeValue(
-      notificationCenterUIElement, kAXWindowsAttribute as CFString, &windowsRef
-    )
-
-    guard
-      let windows = windowsRef as? [AXUIElement], !windows.isEmpty
-    else {
-      logger.debug("notification center has no active windows")
-      return nil
-    }
-
-    return windows.first
+    return names.first { name in
+      guard name.hasPrefix("Name:") else { return false }
+      var descriptionRef: CFString?
+      AXUIElementCopyActionDescription(element, name as CFString, &descriptionRef)
+      let titles = [descriptionRef as String?, customActionTitle(from: name)].compactMap { $0 }
+      return titles.contains(where: strings.isAcceptTitle)
+    }.map { $0 as CFString }
   }
 
-  private func getNotificationCenterApplication() -> AXUIElement? {
-    let notificationCenterBundleId = "com.apple.notificationcenterui"
-    let notificationCenterApplication = NSRunningApplication.runningApplications(
-      withBundleIdentifier: notificationCenterBundleId
-    ).first
+  private func handle(_ element: AXUIElement, acceptAction: CFString) {
+    guard let deviceName = deviceName(of: element) else { return }
 
-    guard
-      let notificationCenterPid = notificationCenterApplication?.processIdentifier
-    else {
-      logger.error(
-        "failed to find notification center application with bundle id \(notificationCenterBundleId)"
-      )
-      return nil
+    let requestId = string(of: element, attribute: kAXIdentifierAttribute) ?? deviceName
+    guard handledRequests.insert(requestId).inserted else { return }
+
+    guard AARDeviceAllowlist.current().allows(deviceName) else {
+      logger.notice("ignored airplay request from device not in allowlist: \(deviceName, privacy: .public)")
+      return
     }
-    return AXUIElementCreateApplication(notificationCenterPid)
+
+    let result = AXUIElementPerformAction(element, acceptAction)
+    guard result == .success else {
+      handledRequests.remove(requestId)
+      logger.error("accept action failed with axerror code=\(result.rawValue, privacy: .public)")
+      return
+    }
+    logger.info("accepted airplay request from device: \(deviceName, privacy: .public)")
+  }
+
+  private func deviceName(of element: AXUIElement) -> String? {
+    let body = elements(of: element, attribute: kAXChildrenAttribute)
+      .first { string(of: $0, attribute: kAXIdentifierAttribute)?.lowercased() == "body" }
+      .flatMap { string(of: $0, attribute: kAXValueAttribute) }
+
+    if let body, let deviceName = strings.deviceName(inBody: body) {
+      return deviceName
+    }
+    return string(of: element, attribute: kAXDescriptionAttribute)
+      .flatMap(strings.deviceName(inDescription:))
+  }
+
+  private func customActionTitle(from actionName: String) -> String? {
+    actionName
+      .dropFirst("Name:".count)
+      .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+      .first
+      .map(String.init)
+  }
+
+  private func elements(of element: AXUIElement, attribute: String) -> [AXUIElement] {
+    var valueRef: CFTypeRef?
+    AXUIElementCopyAttributeValue(element, attribute as CFString, &valueRef)
+    return valueRef as? [AXUIElement] ?? []
+  }
+
+  private func string(of element: AXUIElement, attribute: String) -> String? {
+    var valueRef: CFTypeRef?
+    AXUIElementCopyAttributeValue(element, attribute as CFString, &valueRef)
+    return valueRef as? String
   }
 }

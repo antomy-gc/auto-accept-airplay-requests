@@ -52,8 +52,11 @@ public final actor AARBackgroundWorker: GlobalActor, AARLoggable {
 
     switch await AARSecurityManager().ensureAccessibilityPermission() {
       case .success:
-        AARNotificationsScanner().scanForAirPlayAlerts()
-        return 5
+        await MainActor.run {
+          AARNotificationCenterObserver.shared.ensureObserving()
+          AARNotificationCenterObserver.shared.scan()
+        }
+        return 2
 
       case .failure(.permissionRequested):
         return 10
